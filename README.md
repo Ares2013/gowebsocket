@@ -10,9 +10,9 @@
 
 
 ## 目录
-* [1、项目说明](#1项目说明)
-    * [1.1 goWebSocket](#11-goWebSocket)
-    * [1.2 项目体验](#12-项目体验)
+- [1、项目说明](#1项目说明)
+    - [1.1 goWebSocket](#11-goWebSocket)
+    - [1.2 项目体验](#12-项目体验)
 - [2、介绍webSocket](#2介绍webSocket)
     - [2.1 webSocket 是什么](#21-webSocket-是什么)
     - [2.2 webSocket的兼容性](#22-webSocket的兼容性)
@@ -31,6 +31,9 @@
     - [3.2 使用javaScript实现webSocket客户端](#32-使用javaScript实现webSocket客户端)
         - [3.2.1 启动并注册监听程序](#321-启动并注册监听程序)
         - [3.2.2 发送数据](#322-发送数据)
+    - [3.3 发送消息](#33-发送消息)
+        - [3.3.1 文本消息](#331-文本消息)
+        - [3.3.2 图片和语言消息](#332-图片和语言消息)
 - [4、goWebSocket 项目](#4goWebSocket-项目)
     - [4.1 项目说明](#41-项目说明)
     - [4.2 项目依赖](#42-项目依赖)
@@ -462,10 +465,68 @@ ws.send('{"seq":"2323","cmd":"login","data":{"userId":"11","appId":101}}');
 
 心跳:
 ws.send('{"seq":"2324","cmd":"heartbeat","data":{}}');
- 
+
+ping 查看服务是否正常:
+ws.send('{"seq":"2325","cmd":"ping","data":{}}');
+
 关闭连接:
 ws.close();
 ```
+
+## 3.3 发送消息
+### 3.3.1 文本消息
+
+客户端只要只到发送用户是谁，还有内容就可以显示文本消息，这里我们重点关注一下数据部分
+
+target：定义接收的目标，目前未设置
+
+type：消息的类型，text 文本消息 img 图片消息 
+
+msg：文本消息内容
+
+from：消息的发送者
+
+文本消息的结构:
+
+```json
+{
+  "seq": "1569080188418-747717",
+  "cmd": "msg",
+  "response": {
+    "code": 200,
+    "codeMsg": "Ok",
+    "data": {
+      "target": "",
+      "type": "text",
+      "msg": "hello",
+      "from": "马超"
+    }
+  }
+}
+```
+
+这样一个文本消息的结构就设计完成了，客户端在接收到消息内容就可以展现到 IM 界面上
+
+### 3.3.2 图片和语言消息
+
+发送图片消息，发送消息者的客户端需要先把图片上传到文件服务器，上传成功以后获得图片访问的 URL，然后由发送消息者的客户端需要将图片 URL 发送到 gowebsocket，gowebsocket 图片的消息格式发送给目标客户端，消息接收者客户端接收到图片的 URL 就可以显示图片消息。
+
+图片消息的结构:
+
+```
+{
+  "type": "img",
+  "from": "马超",
+  "url": "http://91vh.com/images/home_logo.png",
+  "secret": "消息鉴权 secret",
+  "size": {
+    "width": 480,
+    "height": 720
+  }
+}
+```
+
+语言消息、和视频消息和图片消息类似，都是先把文件上传服务器，然后通过 gowebsocket 传递文件的 URL，需要注意的是部分消息涉及到隐私的文件，文件访问的时候需要做好鉴权信息，不能让非接收用户也能查看到别人的消息内容。
 
 ## 4、goWebSocket 项目
 ### 4.1 项目说明
@@ -645,31 +706,90 @@ http{
 ### 6.1 Linux内核优化
 - 设置文件打开句柄数
 
+被压测服务器需要保持100W长连接，客户和服务器端是通过socket通讯的，每个连接需要建立一个socket，程序需要保持100W长连接就需要单个程序能打开100W个文件句柄
+
+
 ```
+# 查看系统默认的值
+ulimit -n
+# 设置最大打开文件数
 ulimit -n 1000000
+```
+
+通过修改配置文件的方式修改程序最大打开句柄数
+
+```
+root soft nofile 1040000
+root hard nofile 1040000
+
+root soft nofile 1040000
+root hard nproc 1040000
+
+root soft core unlimited
+root hard core unlimited
+
+* soft nofile 1040000
+* hard nofile 1040000
+
+* soft nofile 1040000
+* hard nproc 1040000
+
+* soft core unlimited
+* hard core unlimited
+```
+
+修改完成以后需要重启机器配置才能生效
+
+- 修改系统级别文件句柄数量
+
+file-max的值需要大于limits设置的值
+
+
+```
+# file-max 设置的值参考
+cat /proc/sys/fs/file-max
+12553500
 ```
 
 - 设置sockets连接参数
 
+`vim /etc/sysctl.conf` 
+
 ```
-vim /etc/sysctl.conf
+# 配置参考
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.tcp_tw_recycle = 0
+net.ipv4.ip_local_port_range = 1024 65000
+net.ipv4.tcp_mem = 786432 2097152 3145728
+net.ipv4.tcp_rmem = 4096 4096 16777216
+net.ipv4.tcp_wmem = 4096 4096 16777216
 ```
+
+`sysctl -p` 修改配置以后使得配置生效命令
 
 ### 6.2 压测准备
 - 待压测，如果大家有压测的结果欢迎补充
 - 后续会出专门的教程,从申请机器、写压测用例、内核优化、得出压测数据
 
-### 6.3 压测数据
-- 项目在实际使用的时候，每个连接约占 24Kb内存，一个Goroutine 约占11kb
-- 支持百万连接需要22G内存
+- **关于压测请移步**
+- [go实现的压测工具【单台机器100w连接压测实战】](https://github.com/link1st/go-stress-testing)
+- 用go语言实现一款压测工具，然后对本项目进行压测，实现单台机器100W长连接
 
-| 在线用户数 |   cup  |  内存   |  I/O  | net.out |
-| :----:   | :----: | :----: | :----: | :----: |
-| 1W       |        |        |        |        |
-| 10W      |        |        |        |        |
-| 100W     |        |        |        |        |
+### 6.3 压测数据
+- 项目在实际使用的时候，每个连接约占 27Kb内存
+- 支持百万连接需要25G内存，单台机器实现百万长连接是可以实现的
+
+- 记录内存使用情况，分别记录了1W到100W连接数内存使用情况
+
+| 连接数      |  内存 |
+| :----:     | :----:|
+|   10000    | 281M  |
+|   100000   | 2.7g  |
+|   200000   | 5.4g  |
+|   500000   | 13.1g |
+|   1000000  | 25.8g |
+
+- [压测详细数据](https://github.com/link1st/go-stress-testing#65-%E5%8E%8B%E6%B5%8B%E6%95%B0%E6%8D%AE)
 
 ## 7、如何基于webSocket实现一个分布式Im
 ### 7.1 说明
@@ -822,7 +942,9 @@ IM实现细节:
 
 [WebSocket协议：5分钟从入门到精通](https://www.cnblogs.com/chyingp/p/websocket-deep-in.html)
 
-[link1st gowebsocket](https://github.com/link1st/gowebsocket)
+[go-stress-testing 单台机器100w连接压测实战](https://github.com/link1st/go-stress-testing)
 
+github 搜:link1st 查看项目 gowebsocket
 
+[https://github.com/link1st/gowebsocket](https://github.com/link1st/gowebsocket)
 

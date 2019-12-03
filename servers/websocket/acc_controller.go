@@ -17,6 +17,17 @@ import (
 	"time"
 )
 
+// ping
+func PingController(client *Client, seq string, message []byte) (code uint32, msg string, data interface{}) {
+
+	code = common.OK
+	fmt.Println("webSocket_request ping接口", client.Addr, seq, message)
+
+	data = "pong"
+
+	return
+}
+
 // 用户登录
 func LoginController(client *Client, seq string, message []byte) (code uint32, msg string, data interface{}) {
 
@@ -43,6 +54,13 @@ func LoginController(client *Client, seq string, message []byte) (code uint32, m
 	if !InAppIds(request.AppId) {
 		code = common.Unauthorized
 		fmt.Println("用户登录 不支持的平台", seq, request.AppId)
+
+		return
+	}
+
+	if client.IsLogin() {
+		fmt.Println("用户登录 用户已经登录", client.AppId, client.UserId, seq)
+		code = common.OperationFailure
 
 		return
 	}
