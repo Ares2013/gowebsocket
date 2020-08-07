@@ -178,19 +178,20 @@ func (manager *ClientManager) GetUserKeys() (userKeys []string) {
 }
 
 // 获取用户的key
-func (manager *ClientManager) GetUserList() (userList []string) {
+func (manager *ClientManager) GetUserList(appId uint32) (userList []string) {
 
 	userList = make([]string, 0)
 
-	clientManager.UserLock.RLock()
-	defer clientManager.UserLock.RUnlock()
+	manager.UserLock.RLock()
+	defer manager.UserLock.RUnlock()
 
-	for _, v := range clientManager.Users {
-		userList = append(userList, v.UserId)
-		fmt.Println("GetUserList", v.AppId, v.UserId, v.Addr)
+	for _, v := range manager.Users {
+		if v.AppId == appId {
+			userList = append(userList, v.UserId)
+		}
 	}
 
-	fmt.Println("GetUserList", clientManager.Users)
+	fmt.Println("GetUserList len:", len(manager.Users))
 
 	return
 }
@@ -209,11 +210,22 @@ func (manager *ClientManager) GetUserClients() (clients []*Client) {
 }
 
 // 向全部成员(除了自己)发送数据
-func (manager *ClientManager) sendAll(message []byte, ignore *Client) {
+func (manager *ClientManager) sendAll(message []byte, ignoreClient *Client) {
 
 	clients := manager.GetUserClients()
 	for _, conn := range clients {
-		if conn != ignore {
+		if conn != ignoreClient {
+			conn.SendMsg(message)
+		}
+	}
+}
+
+// 向全部成员(除了自己)发送数据
+func (manager *ClientManager) sendAppIdAll(message []byte, appId uint32, ignoreClient *Client) {
+
+	clients := manager.GetUserClients()
+	for _, conn := range clients {
+		if conn != ignoreClient && conn.AppId == appId {
 			conn.SendMsg(message)
 		}
 	}
@@ -309,12 +321,12 @@ func (manager *ClientManager) start() {
 func GetManagerInfo(isDebug string) (managerInfo map[string]interface{}) {
 	managerInfo = make(map[string]interface{})
 
-	managerInfo["clientsLen"] = clientManager.GetClientsLen()
-	managerInfo["usersLen"] = clientManager.GetUsersLen()
-	managerInfo["chanRegisterLen"] = len(clientManager.Register)
-	managerInfo["chanLoginLen"] = len(clientManager.Login)
-	managerInfo["chanUnregisterLen"] = len(clientManager.Unregister)
-	managerInfo["chanBroadcastLen"] = len(clientManager.Broadcast)
+	managerInfo["clientsLen"] = clientManager.GetClientsLen()        // 客户端连接数
+	managerInfo["usersLen"] = clientManager.GetUsersLen()            // 登录用户数
+	managerInfo["chanRegisterLen"] = len(clientManager.Register)     // 未处理连接事件数
+	managerInfo["chanLoginLen"] = len(clientManager.Login)           // 未处理登录事件数
+	managerInfo["chanUnregisterLen"] = len(clientManager.Unregister) // 未处理退出登录事件数
+	managerInfo["chanBroadcastLen"] = len(clientManager.Broadcast)   // 未处理广播事件数
 
 	if isDebug == "true" {
 		addrList := make([]string, 0)
@@ -326,8 +338,8 @@ func GetManagerInfo(isDebug string) (managerInfo map[string]interface{}) {
 
 		users := clientManager.GetUserKeys()
 
-		managerInfo["clients"] = addrList
-		managerInfo["users"] = users
+		managerInfo["clients"] = addrList // 客户端列表
+		managerInfo["users"] = users      // 登录用户列表
 	}
 
 	return
@@ -355,10 +367,10 @@ func ClearTimeoutConnections() {
 }
 
 // 获取全部用户
-func GetUserList() (userList []string) {
-	fmt.Println("获取全部用户")
+func GetUserList(appId uint32) (userList []string) {
+	fmt.Println("获取全部用户", appId)
 
-	userList = clientManager.GetUserList()
+	userList = clientManager.GetUserList(appId)
 
 	return
 }
@@ -367,6 +379,6 @@ func GetUserList() (userList []string) {
 func AllSendMessages(appId uint32, userId string, data string) {
 	fmt.Println("全员广播", appId, userId, data)
 
-	ignore := clientManager.GetUserClient(appId, userId)
-	clientManager.sendAll([]byte(data), ignore)
+	ignoreClient := clientManager.GetUserClient(appId, userId)
+	clientManager.sendAppIdAll([]byte(data), appId, ignoreClient)
 }

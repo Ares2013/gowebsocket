@@ -18,7 +18,7 @@ import (
 )
 
 // 查询所有用户
-func UserList() (userList []string) {
+func UserList(appId uint32) (userList []string) {
 
 	userList = make([]string, 0)
 	currentTime := uint64(time.Now().Unix())
@@ -34,9 +34,9 @@ func UserList() (userList []string) {
 			list []string
 		)
 		if IsLocal(server) {
-			list = GetUserList()
+			list = GetUserList(appId)
 		} else {
-			list, _ = grpcclient.GetUserList(server)
+			list, _ = grpcclient.GetUserList(server, appId)
 		}
 		userList = append(userList, list...)
 	}
@@ -87,11 +87,35 @@ func SendUserMessage(appId uint32, userId string, msgId, message string) (sendRe
 
 	data := models.GetTextMsgData(userId, msgId, message)
 
-	// TODO::需要判断不在本机的情况
-	sendResults, err = SendUserMessageLocal(appId, userId, data)
-	if err != nil {
-		fmt.Println("给用户发送消息", appId, userId, err)
+	client := GetUserClient(appId, userId)
+
+	if client != nil {
+		// 在本机发送
+		sendResults, err = SendUserMessageLocal(appId, userId, data)
+		if err != nil {
+			fmt.Println("给用户发送消息", appId, userId, err)
+		}
+
+		return
 	}
+
+	key := GetUserKey(appId, userId)
+	info, err := cache.GetUserOnlineInfo(key)
+	if err != nil {
+		fmt.Println("给用户发送消息失败", key, err)
+
+		return false, nil
+	}
+
+	server := models.NewServer(info.AccIp, info.AccPort)
+	msg, err := grpcclient.SendMsg(server, msgId, appId, userId, models.MessageCmdMsg, models.MessageCmdMsg, message)
+	if err != nil {
+		fmt.Println("给用户发送消息失败", key, err)
+
+		return false, err
+	}
+	fmt.Println("给用户发送消息成功-rpc", msg)
+	sendResults = true
 
 	return
 }
